@@ -15,9 +15,9 @@ const char* password = "kS6cpRHy8qmu";
 // inialise temperature and humidity pin
 const int temp_hum_pin = D1;
 
-//initialise air quality pin and set variable to store value
+//initialise air quality pin and set variable to store ppm value
 const int air_quality_pin = A0;
-int airQualityValue;
+float ppm = 0;
 
 // Initialise variables to store the temperature and humidity values
 int temperature = 0;
@@ -26,10 +26,14 @@ int humidity = 0;
 // Initialise the DHT11 component
 DHT dht(temp_hum_pin, DHT11);
 
-// initialise MQ135 gas sensor
+// initialise MQ135 gas sensor and calibrated rzero value
+float rzero = 6.25;
+MQ135 gasSensor = MQ135(air_quality_pin, rzero);
 
 // Allocate menmory to the JSON document
-DynamicJsonDocument doc(1024);
+//DynamicJsonDocument doc(2048);
+//StaticJsonDocument<384> doc;
+
 
 void setup() {
   // Connect to WiFi
@@ -71,8 +75,13 @@ void loop() {
   temperature = dht.readTemperature();
   humidity = dht.readHumidity();
 
+  // needed to initially get the rzeo vaule to calibrate the sensor. 
+  //float rzero = gasSensor.getRZero();
+  //Serial.println (rzero);
+
   //read air quality value
-  airQualityValue = analogRead(air_quality_pin);
+  ppm = gasSensor.getPPM();
+  
 }
 
 void setup_routes() {
@@ -87,8 +96,28 @@ void setup_routes() {
   server.begin(); // Start the server
 }
 
-void jsonData() {
-  // Add JSON request data
+//void jsonData() {
+//  // Add JSON request data
+//  doc["Content-Type"] = "application/json";
+//  doc["Status"] = 200;
+//
+//  JsonObject tempSensor = doc.createNestedObject("temperature_sensor");
+//  tempSensor["value"] = temperature;
+//  tempSensor["unit"] = "°C";
+//
+//  JsonObject humiditySensor = doc.createNestedObject("humidity_sensor");
+//  humiditySensor["value"] = humidity;
+//  humiditySensor["unit"] = "%";
+//
+//  JsonObject airQualSensor = doc.createNestedObject("air_quality_sensor");
+//  airQualSensor["value"] = ppm;
+//  airQualSensor["unit"] = "ppm";
+//}
+
+void get_json() {
+  //jsonData();
+  DynamicJsonDocument doc(2048);
+
   doc["Content-Type"] = "application/json";
   doc["Status"] = 200;
 
@@ -101,12 +130,9 @@ void jsonData() {
   humiditySensor["unit"] = "%";
 
   JsonObject airQualSensor = doc.createNestedObject("air_quality_sensor");
-  airQualSensor["value"] = airQualityValue;
+  airQualSensor["value"] = ppm;
   airQualSensor["unit"] = "ppm";
-}
-
-void get_json() {
-  jsonData();
+  
 
   String jsonStr;
   serializeJsonPretty(doc, jsonStr);
@@ -128,7 +154,7 @@ void get_index() {
   html += humidity;
   html += " %.</strong></p>";
   html += "<div><p><strong>The air quality reading is: ";
-  html += airQualityValue;
+  html += ppm;
   html += "</strong></p></div>";
 
   html += "</body></html>";
