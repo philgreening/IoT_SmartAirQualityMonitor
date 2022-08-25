@@ -17,7 +17,7 @@ const int temp_hum_pin = D1;
 
 //initialise air quality pin and set variable to store ppm value
 const int air_quality_pin = A0;
-float ppm = 0;
+int ppm = 0;
 
 // Initialise variables to store the temperature and humidity values
 int temperature = 0;
@@ -27,7 +27,7 @@ int humidity = 0;
 DHT dht(temp_hum_pin, DHT11);
 
 // initialise MQ135 gas sensor and calibrated rzero value
-float rzero = 6.25;
+float rzero = 3.3;
 MQ135 gasSensor = MQ135(air_quality_pin, rzero);
 
 // Allocate menmory to the JSON document
@@ -61,6 +61,10 @@ void setup() {
 
   //Start the dht component reading
   dht.begin();
+
+    // needed to initially get the rzeo vaule to calibrate the sensor. 
+  rzero = gasSensor.getRZero();
+//  Serial.println (rzero);
 }
 
 void loop() {
@@ -75,12 +79,10 @@ void loop() {
   temperature = dht.readTemperature();
   humidity = dht.readHumidity();
 
-  // needed to initially get the rzeo vaule to calibrate the sensor. 
-  //float rzero = gasSensor.getRZero();
-  //Serial.println (rzero);
-
   //read air quality value
   ppm = gasSensor.getPPM();
+
+ // getTemp();
   
 }
 
@@ -95,24 +97,6 @@ void setup_routes() {
 
   server.begin(); // Start the server
 }
-
-//void jsonData() {
-//  // Add JSON request data
-//  doc["Content-Type"] = "application/json";
-//  doc["Status"] = 200;
-//
-//  JsonObject tempSensor = doc.createNestedObject("temperature_sensor");
-//  tempSensor["value"] = temperature;
-//  tempSensor["unit"] = "°C";
-//
-//  JsonObject humiditySensor = doc.createNestedObject("humidity_sensor");
-//  humiditySensor["value"] = humidity;
-//  humiditySensor["unit"] = "%";
-//
-//  JsonObject airQualSensor = doc.createNestedObject("air_quality_sensor");
-//  airQualSensor["value"] = ppm;
-//  airQualSensor["unit"] = "ppm";
-//}
 
 void get_json() {
   //jsonData();
@@ -137,9 +121,16 @@ void get_json() {
   String jsonStr;
   serializeJsonPretty(doc, jsonStr);
 
-  server.send(200, "application/json", jsonStr);
-  
+  server.send(200, "application/json", jsonStr);  
 }
+
+//int getTemp() {
+//  int tempData[99];
+//  for(int i=0; i <= 99; i++){
+//    tempData[i] = temperature;
+//  }
+//  
+//}
 
 void get_index() {
 
@@ -156,6 +147,28 @@ void get_index() {
   html += "<div><p><strong>The air quality reading is: ";
   html += ppm;
   html += "</strong></p></div>";
+
+  html += "<div><canvas id='tempChart' width='400' height='400'></canvas></div>";
+  html += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>";
+  html += "<script>";
+  html += "let time = new Date().toLocaleTimeString();";
+  html += "let timeStamp = [];";
+  html += "timeStamp.push(time);";
+  html += "tempValues.push('${temperature}');";
+  html += "console.log(tempValues);";
+  html += "console.log(timeStamp);";
+  html += "const labels = ['one', 'two', 'three'];";
+  html += "const data = {labels: labels, datasets:[{label:'Temperature', backgroundColor: 'rgb(255, 99, 132)', borderColor: 'rgb(255, 99, 132)', data:[tempValues],}]};";
+  html += "const config = {type:'line', data:data, options:{}};</script>";
+  html += "<script>const tempChart = new Chart(document.getElementById('tempChart'), config);</script>";
+
+  html += "<div><canvas id='humChart' width='400' height='400'></canvas></div>";
+  html += "<script> const humlabels = ['one', 'two', 'three'];";
+  html += "const humdata = {labels: labels, datasets:[{label:'Humidity', backgroundColor: 'rgb(255, 99, 132)', borderColor: 'rgb(255, 99, 132)', data:[`humidity`],}]};";
+  html += "const humconfig = {type:'line', data:humdata, options:{}};</script>";
+  html += "<script>const humChart = new Chart(document.getElementById('humChart'), humconfig);</script>";
+
+
 
   html += "</body></html>";
 
