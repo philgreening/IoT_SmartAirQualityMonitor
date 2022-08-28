@@ -1,16 +1,23 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h> 
 #include <ArduinoJson.h> 
 #include "DHT.h"
 #include "MQ135.h"
+#include <Ticker.h>
 
 
 // set the PORT for the webserver
 ESP8266WebServer server(80);
 
+// add a websocket to the server
+WebSocketsServer webSocket = WebSocketsServer(81);
+
 // Wifi detail
 const char* ssid = "SKYHEJQH";
 const char* password = "kS6cpRHy8qmu";
+
+Ticker timer;
 
 // inialise temperature and humidity pin
 const int temp_hum_pin = D1;
@@ -56,11 +63,16 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   setup_routes();
+
+  webSocket.begin();
+  webSocket.onEvent(webSocketsEvent);
   
   Serial.println("Server listening");
 
   //Start the dht component reading
   dht.begin();
+  timer.attach(5, get_json);
+  
 
     // needed to initially get the rzeo vaule to calibrate the sensor. 
   rzero = gasSensor.getRZero();
@@ -72,6 +84,7 @@ void loop() {
 
   Serial.println("Server is running");
 
+  webSocket.loop();
   // handling of incoming client requests
   server.handleClient();
   
@@ -82,8 +95,6 @@ void loop() {
   //read air quality value
   ppm = gasSensor.getPPM();
 
- // getTemp();
-  
 }
 
 void setup_routes() {
@@ -96,6 +107,10 @@ void setup_routes() {
   server.on("/data", get_json);
 
   server.begin(); // Start the server
+}
+
+void webSocketsEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  
 }
 
 void get_json() {
@@ -120,55 +135,85 @@ void get_json() {
 
   String jsonStr;
   serializeJsonPretty(doc, jsonStr);
-
+  
+  webSocket.broadcastTXT(jsonStr.c_str(), jsonStr.length());
   server.send(200, "application/json", jsonStr);  
 }
-
-//int getTemp() {
-//  int tempData[99];
-//  for(int i=0; i <= 99; i++){
-//    tempData[i] = temperature;
-//  }
-//  
-//}
 
 void get_index() {
 
   String html = "<!DOCTYPE html> <html> ";
-  html += "<head><meta http-equiv=\"refresh\" content=\"2\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head>";
-  html += "<body><h1>The Smart Air Quality Monitor Dashboard</h1>";
-  html += "<p> Welcome to the smart air quality monitor dashboard</p>";
-  html += "<div><p><strong>The temperature reading is: ";
-  html += temperature;
-  html += " degrees.</strong></p>";
-  html += "<div><p><strong>The humidity reading is: ";
-  html += humidity;
-  html += " %.</strong></p>";
-  html += "<div><p><strong>The air quality reading is: ";
-  html += ppm;
-  html += "</strong></p></div>";
-
-  html += "<div><canvas id='tempChart' width='400' height='400'></canvas></div>";
+  html += "<head>";
+  html += "<meta><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
   html += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>";
-  html += "<script>";
-  html += "let time = new Date().toLocaleTimeString();";
-  html += "let timeStamp = [];";
-  html += "timeStamp.push(time);";
-  html += "tempValues.push('${temperature}');";
-  html += "console.log(tempValues);";
-  html += "console.log(timeStamp);";
-  html += "const labels = ['one', 'two', 'three'];";
-  html += "const data = {labels: labels, datasets:[{label:'Temperature', backgroundColor: 'rgb(255, 99, 132)', borderColor: 'rgb(255, 99, 132)', data:[tempValues],}]};";
-  html += "const config = {type:'line', data:data, options:{}};</script>";
-  html += "<script>const tempChart = new Chart(document.getElementById('tempChart'), config);</script>";
-
+  html += "</head>";
+  html += "<body onload='javascript:init()'><h1>The Smart Air Quality Monitor Dashboard</h1>";
+  html += "<p> Welcome to the smart air quality monitor dashboard</p>";
+  html += "<div><p id='temperature'></p>";
+  html += "<div><canvas id='tempChart' width='400' height='400'></canvas></div>";
+  html += "<div><p id='humidity'></p>";
   html += "<div><canvas id='humChart' width='400' height='400'></canvas></div>";
-  html += "<script> const humlabels = ['one', 'two', 'three'];";
-  html += "const humdata = {labels: labels, datasets:[{label:'Humidity', backgroundColor: 'rgb(255, 99, 132)', borderColor: 'rgb(255, 99, 132)', data:[`humidity`],}]};";
-  html += "const humconfig = {type:'line', data:humdata, options:{}};</script>";
-  html += "<script>const humChart = new Chart(document.getElementById('humChart'), humconfig);</script>";
+  html += "<div><p id='air_quality'></p>";
+  html += "<div><canvas id='airQualChart' width='400' height='400'></canvas></div>";
 
+  html += "<script type='text/javascript'>";
+  
+  html += "var websocket, tempDataPlot, humDataPlot, airQualDataPlot;";
+  html += "const maxDataPoints =20;";
+  html += "function addData(label, data){";
+  html += "if(tempDataPlot.data.labels.length > maxDataPoints) removeData();"; 
+  html += "console.log('addData',data, 'label: ', label);";
+  html += "console.log('tempdataplot: ', tempDataPlot.data);";
+  html += "tempDataPlot.data.labels.push(label);";
+  html += "tempDataPlot.data.datasets[0].data.push(data.temperature_sensor.value);";
+  html += "tempDataPlot.update();";
+  html += "humDataPlot.data.labels.push(label);";
+  html += "humDataPlot.data.datasets[0].data.push(data.humidity_sensor.value);";
+  html += "humDataPlot.update();";
+  html += "airQualDataPlot.data.labels.push(label);";
+  html += "airQualDataPlot.data.datasets[0].data.push(data.air_quality_sensor.value);";
+  html += "airQualDataPlot.update();}";
+  
+  html += "function removeData(){";
+  html += "tempDataPlot.data.labels.shift();";
+  html += "tempDataPlot.data.datasets[0].data.shift();";
+  html += "humDataPlot.data.labels.shift();";
+  html += "humDataPlot.data.datasets[0].data.shift();";
+  html += "airQualDataPlot.data.labels.shift();";
+  html += "airQualDataPlot.data.datasets[0].data.shift();}";
 
+  html += "function init(){";
+  html += "webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');";
+  html += "tempDataPlot = new Chart(document.getElementById('tempChart'),{";
+  html += "type: 'line',";
+  html += "data: {";
+  html += "labels: [], datasets: [{ data: [], label: 'Temperature (c)', borderColor: '#3e95cd', fill: false}]";
+  html += "}});";
+  html += "humDataPlot = new Chart(document.getElementById('humChart'),{";
+  html += "type: 'line',";
+  html += "data: {";
+  html += "labels: [], datasets: [{ data: [], label: 'Humidity (%)', borderColor: '#3e95cd', fill: false}]";
+  html += "}});";
+  html += "airQualDataPlot = new Chart(document.getElementById('airQualChart'),{";
+  html += "type: 'line',";
+  html += "data: {";
+  html += "labels: [], datasets: [{ data: [], label: 'Air quality (ppm)', borderColor: '#3e95cd', fill: false}]";
+  html += "}});";
+  
+  html += "webSocket.onmessage = function(event){";
+  html += "var data = JSON.parse(event.data);console.log('data called:',data.temperature_sensor.value);"; 
+  html += "var today = new Date();";
+  html += "var hourMinSec = today.getHours() + ':' + today.getMinutes() + ':' + today.getSeconds();";
+  html += "addData(hourMinSec, data);";
+  html += "let currentTemp = '<strong> The current temperature is : ' + data.temperature_sensor.value + data.temperature_sensor.unit + '</strong>';";
+  html += "document.getElementById('temperature').innerHTML = currentTemp;";
+  html += "let currentHum = '<strong> The current humidity is : ' + data.humidity_sensor.value + data.humidity_sensor.unit + '</strong>';";
+  html += "document.getElementById('humidity').innerHTML = currentHum;";
+  html += "let currentAirQual = '<strong> The current air quality is : ' + data.air_quality_sensor.value + data.air_quality_sensor.unit + '</strong>';";
+  html += "document.getElementById('air_quality').innerHTML = currentAirQual;";
+  html += "}}";
+  
+  html += "</Script>";
 
   html += "</body></html>";
 
